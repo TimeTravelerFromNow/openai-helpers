@@ -47,7 +47,50 @@ def get_processed_run(run, thread_id):
     else:
         return run
 
-### DELETE FUNCTIONS
+# Handles the run result to determine next steps
+# Ex: 
+#next_step = handle_run_result(run=run, thread_id=my_thread_id)
+# if next_step == 'prompt_user':
+#     user_input = input('ask another question')
+#     ...
+# elif next_step == 'continue_assistant':
+#     run = get_processed_run(run, my_thread_id)
+#     ...
+def handle_run_result(run=None,thread_id=''):
+    match run.status:
+        case 'completed':
+            return 'prompt_user'
+        case 'requires_action':
+            # check required action type is to submit tool outputs
+            if run.required_action.type == 'submit_tool_outputs':
+                required_action = run.required_action.submit_tool_outputs
+                tool_call = required_action.tool_calls[0]
+                function_name = tool_call.function.name
+                arguments = tool_call.function.arguments
+                if tool_call.type == 'function':
+                    # function call
+                    print("Assistant is calling the {} function".format(function_name))
+                    ###
+                    # Define once and implement your call_custom_function somewhere in your script.
+                    ###
+                    tool_output = call_custom_function(function_name, arguments)
+                    client.beta.threads.runs.submit_tool_outputs(
+                        thread_id=thread_id,
+                        run_id=run.id,
+                        tool_outputs=[
+                            {
+                                "tool_call_id":tool_call.id,
+                                "output": tool_output
+                            }
+                        ]
+                    )
+                return 'continue_assistant'
+        case 'cancelled':
+            raise Exception('Assistant run cancelled')
+        case _:
+            raise Exception('Unknown assistant run status {}'.format(run.status))
+            
+### Destructors
 def remove_from_file_store(file_paths):
     print('implement me CLEANUP remove_from_file_store!!')
 
