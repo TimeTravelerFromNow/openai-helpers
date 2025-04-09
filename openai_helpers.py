@@ -6,6 +6,8 @@
 from openai import OpenAI
 import time
 
+client = OpenAI()
+
 # Retrieve an openai assistant by ID
 def retrieve_assistant_by_id(assistant_id):
     try:
@@ -34,8 +36,8 @@ def print_message_history(thread_id):
                     print(content.text.value)
                 case _:
                     print("Not yet implemented for handling content type {}".format(content.type))
-        
-    
+
+
 def get_processed_run(run, thread_id):
     MAX_ITER=100 # 30 seconds max
     SLEEP=0.3
@@ -54,15 +56,17 @@ def get_processed_run(run, thread_id):
     else:
         return run
 
-# Handles the run result to determine next steps
-# Ex: 
-#next_step = handle_run_result(run=run, thread_id=my_thread_id)
-# if next_step == 'prompt_user':
-#     user_input = input('ask another question')
-#     ...
-# elif next_step == 'continue_assistant':
-#     run = get_processed_run(run, my_thread_id)
-#     ...
+### handle_run_result Handles the run result to determine next steps
+# Parameters:
+# run: the run object to handle
+# thread_id: thread id of the run
+# _func_caller: function(function_name, arguments) # calls and returns custom code.
+# Define once and implement your call_custom_function somewhere in your script.
+# Returns string:
+# 'prompt_user' if the run is completed
+# 'continue_assistant' if the run is requires_action
+# else raise exception
+###
 def handle_run_result(run=None,thread_id='',_func_caller=None):
     match run.status:
         case 'completed':
@@ -77,9 +81,6 @@ def handle_run_result(run=None,thread_id='',_func_caller=None):
                 if tool_call.type == 'function':
                     # function call
                     print("Assistant is calling the {} function".format(function_name))
-                    ###
-                    # Define once and implement your call_custom_function somewhere in your script.
-                    ###
                     tool_output = _func_caller(function_name, arguments)
                     client.beta.threads.runs.submit_tool_outputs(
                         thread_id=thread_id,
@@ -96,7 +97,7 @@ def handle_run_result(run=None,thread_id='',_func_caller=None):
             raise Exception('Assistant run cancelled')
         case _:
             raise Exception('Unknown assistant run status {}'.format(run.status))
-            
+
 ### Destructors
 def remove_from_file_store(file_paths):
     print('implement me CLEANUP remove_from_file_store!!')
