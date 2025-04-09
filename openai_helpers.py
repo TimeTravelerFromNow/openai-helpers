@@ -33,14 +33,14 @@ def remove_from_file_store(file_paths):
     #cleanup code
     print('implement me CLEANUP remove_from_file_store!!')
 
-def get_processed_run(run, thread_id)
+def get_processed_run(run, thread_id):
     MAX_ITER=100 # 30 seconds max
     SLEEP=0.3
     run = client.beta.threads.runs.retrieve(
         thread_id=thread_id,
         run_id=run.id
     )
-    while run.status == 'queued' && i < MAX_ITER:
+    while run.status == 'queued' and i < MAX_ITER:
         time.sleep(SLEEP)
         i += 1
     if run.status == 'queued':
@@ -48,7 +48,7 @@ def get_processed_run(run, thread_id)
     else:
         return run
 
-def delete_thread(thread_id='')
+def delete_thread(thread_id=''):
     result = client.beta.threads.delete(thread_id)
     if result.deleted:
         print('successfully deleted thread')
