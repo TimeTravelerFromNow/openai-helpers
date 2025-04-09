@@ -1,13 +1,6 @@
 # openai_helpers.py
 ###########
-### REQUIREMENTS
-# dependencies: dotenv openai
-# Python 3.12
-# requires .env in the same directory with your OPENAI_API_KEY='your-open-ai-account-api-key'
-### Usage
-# from openai_helpers import *
-### PURPOSE
-# the purpose of this file is to abstract away some processing logic into helpers for the openai API
+# the purpose of the openai helpers is to abstract away some processing logic into helpers for the openai API
 # Things that are one liners, dont require additional handling logic, you should call regularly within your script as client.beta...
 #######
 from dotenv import load_dotenv
@@ -61,4 +54,3 @@ def delete_thread(thread_id='')
         print('successfully deleted thread')
     else:
         print("thread not successfully deleted")
-    
