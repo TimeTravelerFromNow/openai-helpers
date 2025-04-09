@@ -56,7 +56,7 @@ def get_processed_run(run, thread_id):
 # elif next_step == 'continue_assistant':
 #     run = get_processed_run(run, my_thread_id)
 #     ...
-def handle_run_result(run=None,thread_id=''):
+def handle_run_result(run=None,thread_id='',_func_caller=None):
     match run.status:
         case 'completed':
             return 'prompt_user'
@@ -73,7 +73,7 @@ def handle_run_result(run=None,thread_id=''):
                     ###
                     # Define once and implement your call_custom_function somewhere in your script.
                     ###
-                    tool_output = call_custom_function(function_name, arguments)
+                    tool_output = _func_caller(function_name, arguments)
                     client.beta.threads.runs.submit_tool_outputs(
                         thread_id=thread_id,
                         run_id=run.id,
