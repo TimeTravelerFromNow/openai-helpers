@@ -29,17 +29,23 @@ def upload_to_file_store(file_paths):
     file_batch = client.vector_stores.file_batches.upload_and_poll(
       vector_store_id=file_store.id, files=file_streams
     )
+
+def print_message_history(thread_id):
+    messages = client.beta.threads.messages.list(thread_id)
+    for m in messages:
+        
+    
 def get_processed_run(run, thread_id):
     MAX_ITER=100 # 30 seconds max
     SLEEP=0.3
-    run = client.beta.threads.runs.retrieve(
-        thread_id=thread_id,
-        run_id=run.id
-    )
     i = 0
     status = run.status
     is_incomplete_status = (run.status == 'queued' or run.status == 'in_progress')
     while is_incomplete_status and i < MAX_ITER:
+        run = client.beta.threads.runs.retrieve(
+            thread_id=thread_id,
+            run_id=run.id
+        )
         time.sleep(SLEEP)
         i += 1
     if is_incomplete_status:
