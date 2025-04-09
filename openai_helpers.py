@@ -3,13 +3,8 @@
 # the purpose of the openai helpers is to abstract away some processing logic into helpers for the openai API
 # Things that are one liners, dont require additional handling logic, you should call regularly within your script as client.beta...
 #######
-from dotenv import load_dotenv
 from openai import OpenAI
 import time
-
-load_dotenv()
-client = OpenAI()
-FILE_STORE = client.vector_stores.create(name="Style and HTML Files")
 
 # Retrieve an openai assistant by ID
 def retrieve_assistant_by_id(assistant_id):
