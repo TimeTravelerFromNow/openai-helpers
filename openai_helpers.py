@@ -5,6 +5,7 @@
 #######
 from openai import OpenAI
 import time
+import json
 
 client = OpenAI()
 
@@ -42,7 +43,7 @@ def get_processed_run(run, thread_id):
     MAX_ITER=100 # 30 seconds max
     SLEEP=0.3
     i = 0
-    is_incomplete_status = True
+    is_incomplete_status = (run.status == 'queued' or run.status == 'in_progress')
     while is_incomplete_status and i < MAX_ITER:
         is_incomplete_status = (run.status == 'queued' or run.status == 'in_progress')
         run = client.beta.threads.runs.retrieve(
@@ -67,7 +68,20 @@ def get_processed_run(run, thread_id):
 # 'continue_assistant' if the run is requires_action
 # else raise exception
 ###
-def handle_run_result(run=None,thread_id='',_func_caller=None):
+MAX_ITER = 20
+assistant_iteration = 0
+def handle_run_result(run=None,thread_id='',_func_caller=None,is_recursing=False):
+    global assistant_iteration
+
+    run = get_processed_run(run, thread_id)
+    if not is_recursing:
+        assistant_iteration = 0 # reset the safety counter
+    else:
+        if assistant_iteration >= MAX_ITER:
+            raise Exception("MAX_ITER safety limit hit for assistant runs")
+        else:
+            assistant_iteration += 1
+            print("assistant_iteration: {}".format(assistant_iteration))
     match run.status:
         case 'completed':
             return 'prompt_user'
@@ -80,9 +94,10 @@ def handle_run_result(run=None,thread_id='',_func_caller=None):
                 arguments = tool_call.function.arguments
                 if tool_call.type == 'function':
                     # function call
-                    print("Assistant is calling the {} function".format(function_name))
-                    tool_output = _func_caller(function_name, arguments)
-                    client.beta.threads.runs.submit_tool_outputs(
+                    print("Assistant is calling the {} function \n with arguments: {}".format(function_name, arguments))
+                    json_args = json.loads(arguments)
+                    tool_output = _func_caller(function_name, json_args)
+                    run = client.beta.threads.runs.submit_tool_outputs(
                         thread_id=thread_id,
                         run_id=run.id,
                         tool_outputs=[
@@ -92,7 +107,12 @@ def handle_run_result(run=None,thread_id='',_func_caller=None):
                             }
                         ]
                     )
-                return 'continue_assistant'
+                return handle_run_result(
+                    run=run,
+                    thread_id=thread_id,
+                    _func_caller=_func_caller,
+                    is_recursing=True
+                )
         case 'cancelled':
             raise Exception('Assistant run cancelled')
         case _:
