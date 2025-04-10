@@ -6,6 +6,8 @@
 from openai import OpenAI
 import time
 import json
+import os
+import shutil
 
 client = OpenAI()
 
@@ -18,16 +20,80 @@ def retrieve_assistant_by_id(assistant_id):
         print(f"Error retrieving assistant: {e}")
         return None
 
-def upload_to_file_store(file_paths):
-    # Ready the files for upload to OpenAI
-    file_streams = [open(path, "rb") for path in file_paths]
+# Create a directory for extension overrides if it doesn't exist
+TMP_EXT_OVERRIDES_DIR = os.path.join("tmp", "ext-overrides")
+os.makedirs(TMP_EXT_OVERRIDES_DIR, exist_ok=True)
 
-    # Use the upload and poll SDK helper to upload the files, add them to the vector store,
-    # and poll the status of the file batch for completion.
-    file_batch = client.vector_stores.file_batches.upload_and_poll(
-      vector_store_id=file_store.id, files=file_streams
+def get_compatible_file_stream(file_path):
+    """
+    Creates a compatible file stream for the vector store.
+    If the file has an unsupported extension, it's copied to a tmp directory with a compatible extension.
+    Args:
+        file_path: Path to the original file
+    Returns:
+        file_stream
+    """
+    # Get the base name and extension
+    base_name = os.path.basename(file_path)
+    name, ext = os.path.splitext(base_name)
+
+    # override unsupported file extensions
+    new_ext = ext
+    if ext == '.scss':
+        new_ext = '.css'
+    elif ext == '.html.liquid':
+        new_ext = '.html'
+
+    # If the extension is already compatible, just open the original file
+    if new_ext == ext:
+        file_stream = open(file_path, "rb")
+        return file_stream, lambda: file_stream.close()
+
+    # Create a new file in the tmp directory with the compatible extension
+    new_filename = name + new_ext
+    new_path = os.path.join(TMP_EXT_OVERRIDES_DIR, new_filename)
+
+    # Copy the content from the original file to the new file
+    shutil.copy2(file_path, new_path)
+    # Open the new file for the vector store
+    file_stream = open(new_path, "rb")
+
+    return file_stream
+
+def upload_files_to_openai(file_paths):
+    """
+    Uploads files to OpenAI, provides a cleanup handler
+    """
+    # Ready the files for upload to OpenAI
+    file_streams = []
+    file_ids = []
+    for path in file_paths:
+        # Get a compatible file stream
+        file_stream = get_compatible_file_stream(path)
+        file_streams.append(file_stream)
+
+        try:
+            response = client.files.create(
+                file=file_stream,
+                purpose="assistants"
+            )
+            file_ids.append(response.id)
+            file_stream.close()
+        except Exception as e:
+            file_stream.close()
+            print(f"Error uploading file: {e}")
+
+    return file_ids
+
+def create_vector_store_file(file_id="",vector_store_id=""):
+    """
+    Add a file to the vector store
+    """
+    response = client.vector_stores.files.create(
+        vector_store_id=vector_store_id,
+        file_id=file_id
     )
-    return file_batch
+    return response
 
 # get_latest_message(thread_id)
 # returns content of string of latest message posted to the thread.
@@ -147,8 +213,20 @@ def serve_tool_calls(tool_calls=None, run_id="", thread_id="", _func_caller=None
 
 
 ### Destructors
-def remove_from_file_store(file_paths):
-    print('implement me CLEANUP remove_from_file_store!!')
+def delete_openai_file(file_id="",vector_store_id=None):
+    """
+    Delete a file from the vector store if given a vector store id and delete from openai file storage
+    Dont really care about local tmp for the time being
+    Returns a tuple of (response,response) for the vector store and file storage deletion calls respectively
+    """
+    (vector_store_response,deletion_handler_response) = (None,None)
+    if vector_store_id:
+        vector_store_response = client.vector_stores.files.delete(
+            vector_store_id=vector_store_id,
+            file_id=file_id
+        )
+    deletion_handler_response = client.files.delete(file_id)
+    return (vector_store_response,deletion_handler_response)
 
 def delete_thread(thread_id=''):
     result = client.beta.threads.delete(thread_id)
