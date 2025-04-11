@@ -10,7 +10,7 @@ import os
 import shutil
 
 client = OpenAI()
-FILE_IDS=[]
+FILE_IDS = []
 
 # Retrieve an openai assistant by ID
 def retrieve_assistant_by_id(assistant_id):
@@ -44,6 +44,8 @@ def get_compatible_file_stream(file_path):
         new_ext = '.css'
     elif ext == '.html.liquid':
         new_ext = '.html'
+    elif ext == '.png':
+        raise Exception("PNG files are not supported for vector store")
 
     # If the extension is already compatible, just open the original file
     if new_ext == ext:
@@ -62,8 +64,11 @@ def get_compatible_file_stream(file_path):
     return file_stream
 
 def upload_and_add_to_vector_store(file_paths=[],vector_store_id=""):
-    file_ids = upload_files_to_openai(file_paths)
+    (file_ids,missing_file_names) = upload_files_to_openai(file_paths)
     print(f"uploaded files to openai: {file_ids}")
+
+    if len(file_ids)==0:
+        return (file_ids,missing_file_names)
 
     vector_store_file_batch = client.vector_stores.file_batches.create(
         vector_store_id=vector_store_id,
@@ -80,9 +85,9 @@ def upload_and_add_to_vector_store(file_paths=[],vector_store_id=""):
         print(".",end="")
         i += 1
     print(f"done with vector store file batch ids: {file_ids}")
-    global FILE_IDS
+    # No need for global declaration here since we're just reading
     FILE_IDS.extend(file_ids)
-    return file_ids
+    return (file_ids,missing_file_names)
 
 def upload_files_to_openai(file_paths):
     """
@@ -91,10 +96,15 @@ def upload_files_to_openai(file_paths):
     # Ready the files for upload to OpenAI
     file_streams = []
     file_ids = []
+    missing_file_names = []
     for path in file_paths:
         # Get a compatible file stream
-        file_stream = get_compatible_file_stream(path)
-        file_streams.append(file_stream)
+        try:
+            file_stream = get_compatible_file_stream(path)
+            file_streams.append(file_stream)
+        except Exception as e:
+            missing_file_names.append(path)
+            continue
 
         try:
             response = client.files.create(
@@ -107,7 +117,7 @@ def upload_files_to_openai(file_paths):
             file_stream.close()
             print(f"Error uploading file: {e}")
 
-    return file_ids
+    return (file_ids,missing_file_names)
 
 def create_vector_store_file(file_id="",vector_store_id=""):
     """
@@ -189,7 +199,7 @@ def handle_run_result(run=None,thread_id='',_func_caller=None,is_recursing=False
             raise Exception("MAX_ITER safety limit hit for assistant runs")
         else:
             assistant_iteration += 1
-            print("assistant_iteration: {}".format(assistant_iteration))
+            print("\nassistant_iteration: {}".format(assistant_iteration))
     match run.status:
         case 'completed':
             return 'prompt_user'
@@ -247,6 +257,16 @@ def delete_files_from_openai(file_ids=[],vector_store_id=None):
 
         FILE_IDS.remove(file_id)
 
+def remove_files_from_vector_store(file_ids=[],vector_store_id=""):
+    result=""
+    for file_id in file_ids:
+        result = client.vector_stores.files.delete(
+            vector_store_id=vector_store_id,
+            file_id=file_id
+        )
+        print(f"{result}")
+    return result.object
+
 def delete_openai_file(file_id="",vector_store_id=None):
     """
     Delete a file from the vector store if given a vector store id and delete from openai file storage
@@ -272,8 +292,8 @@ def delete_thread(thread_id=''):
 
 def clear_openai_storage(vector_store_id=None):
     print(f"Starting to cleanup of all files {len(FILE_IDS)} from OpenAI, thanks for being tidy!".format(FILE_IDS))
-    global FILE_IDS
-    for file_id in FILE_IDS:
+    # No need for global declaration here since we're modifying through functions
+    for file_id in FILE_IDS[:]:  # Create a copy of the list to iterate over
         (vector_store_response,deletion_handler_response) = delete_openai_file(file_id,vector_store_id)
         if vector_store_response:
             print(f"{vector_store_response}")
