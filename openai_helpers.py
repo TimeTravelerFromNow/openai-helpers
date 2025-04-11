@@ -10,6 +10,7 @@ import os
 import shutil
 
 client = OpenAI()
+FILE_IDS=[]
 
 # Retrieve an openai assistant by ID
 def retrieve_assistant_by_id(assistant_id):
@@ -47,7 +48,7 @@ def get_compatible_file_stream(file_path):
     # If the extension is already compatible, just open the original file
     if new_ext == ext:
         file_stream = open(file_path, "rb")
-        return file_stream, lambda: file_stream.close()
+        return file_stream
 
     # Create a new file in the tmp directory with the compatible extension
     new_filename = name + new_ext
@@ -60,9 +61,32 @@ def get_compatible_file_stream(file_path):
 
     return file_stream
 
+def upload_and_add_to_vector_store(file_paths=[],vector_store_id=""):
+    file_ids = upload_files_to_openai(file_paths)
+    print(f"uploaded files to openai: {file_ids}")
+
+    vector_store_file_batch = client.vector_stores.file_batches.create(
+        vector_store_id=vector_store_id,
+        file_ids=file_ids
+    )
+    print(f"uploading {file_paths} to vector store, batch {vector_store_file_batch.id}")
+    i = 0
+    while vector_store_file_batch.status != "completed" and i <= MAX_ITER:
+        vector_store_file_batch = client.vector_stores.file_batches.retrieve(
+            vector_store_id=vector_store_id,
+            batch_id=vector_store_file_batch.id
+        )
+        time.sleep(0.3)
+        print(".",end="")
+        i += 1
+    print(f"done with vector store file batch ids: {file_ids}")
+    global FILE_IDS
+    FILE_IDS.extend(file_ids)
+    return file_ids
+
 def upload_files_to_openai(file_paths):
     """
-    Uploads files to OpenAI, provides a cleanup handler
+    Uploads files to OpenAI, returns an array of file ids
     """
     # Ready the files for upload to OpenAI
     file_streams = []
@@ -191,13 +215,11 @@ def handle_run_result(run=None,thread_id='',_func_caller=None,is_recursing=False
         case _:
             raise Exception('Unknown assistant run status {}'.format(run.status))
 
-# handle_tool_calls
+# serve_tool_calls
 # tool_calls: list of tool calls
 # _func_caller: function(function_name, arguments) # calls and returns custom code.
 # Define once and implement your call_custom_function somewhere in your script.
-# Returns string:
-# 'prompt_user' if the run is completed
-# 'continue_assistant' if the run is requires_action
+# Returns run object after submitting tool outputs.
 def serve_tool_calls(tool_calls=None, run_id="", thread_id="", _func_caller=None):
     function_outputs = [{
         "tool_call_id": tool_call.id,
@@ -211,8 +233,20 @@ def serve_tool_calls(tool_calls=None, run_id="", thread_id="", _func_caller=None
             )
     return run
 
-
 ### Destructors
+def delete_files_from_openai(file_ids=[],vector_store_id=None):
+    for file_id in file_ids:
+        (vs_result, del_result) = delete_openai_file(
+            file_id=file_id,
+            vector_store_id=vector_store_id
+        )
+        if vs_result:
+            print(f"{vs_result}")
+        if del_result:
+            print(f"{del_result}")
+
+        FILE_IDS.remove(file_id)
+
 def delete_openai_file(file_id="",vector_store_id=None):
     """
     Delete a file from the vector store if given a vector store id and delete from openai file storage
@@ -226,6 +260,7 @@ def delete_openai_file(file_id="",vector_store_id=None):
             file_id=file_id
         )
     deletion_handler_response = client.files.delete(file_id)
+    FILE_IDS.remove(file_id)
     return (vector_store_response,deletion_handler_response)
 
 def delete_thread(thread_id=''):
@@ -234,3 +269,18 @@ def delete_thread(thread_id=''):
         print('successfully deleted thread')
     else:
         print("thread not successfully deleted")
+
+def clear_openai_storage(vector_store_id=None):
+    print(f"Starting to cleanup of all files {len(FILE_IDS)} from OpenAI, thanks for being tidy!".format(FILE_IDS))
+    global FILE_IDS
+    for file_id in FILE_IDS:
+        (vector_store_response,deletion_handler_response) = delete_openai_file(file_id,vector_store_id)
+        if vector_store_response:
+            print(f"{vector_store_response}")
+        if deletion_handler_response:
+            print(f"{deletion_handler_response}")
+    print("Done deleting, files should be gone: FILE_IDS={}".format(FILE_IDS))
+    if vector_store_id:
+        print("deleting the vector store too")
+        result = client.vector_stores.delete(vector_store_id)
+        print(f"Done deleting, vector store should be gone\n{result}")
