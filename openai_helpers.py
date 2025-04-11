@@ -260,11 +260,17 @@ def delete_files_from_openai(file_ids=[],vector_store_id=None):
 def remove_files_from_vector_store(file_ids=[],vector_store_id=""):
     result=""
     for file_id in file_ids:
-        result = client.vector_stores.files.delete(
-            vector_store_id=vector_store_id,
-            file_id=file_id
-        )
-        print(f"{result}")
+        if not file_id.startswith('file-'):
+            file_id = 'file-' + file_id
+        try :
+            result = client.vector_stores.files.delete(
+                vector_store_id=vector_store_id,
+                file_id=file_id
+            )
+            print(f"{result}")
+        except:
+            print(f"Error deleting file {file_id} from vector store {vector_store_id}")
+            continue
     return result.object
 
 def delete_openai_file(file_id="",vector_store_id=None):
