@@ -231,10 +231,31 @@ def handle_run_result(run=None,thread_id='',_func_caller=None,is_recursing=False
 # Define once and implement your call_custom_function somewhere in your script.
 # Returns run object after submitting tool outputs.
 def serve_tool_calls(tool_calls=None, run_id="", thread_id="", _func_caller=None):
-    function_outputs = [{
-        "tool_call_id": tool_call.id,
-        "output": _func_caller(tool_call.function.name, json.loads(tool_call.function.arguments))
-    } for tool_call in tool_calls]
+    function_outputs = []
+
+    for tool_call in tool_calls:
+        function_name = tool_call.function.name
+        arguments = json.loads(tool_call.function.arguments)
+
+        # Check if the function is str_replace_editor or str_replace_tool
+        if function_name in ["str_replace_editor", "str_replace_tool"]:
+            # Import the module only when needed to avoid circular imports
+            try:
+                from str_replace_editor import handle_function_call
+                output = handle_function_call(function_name, arguments)
+            except ImportError:
+                output = json.dumps({
+                    "content": "Error: str_replace_editor module not found",
+                    "is_error": True
+                })
+        else:
+            # Use the provided function caller for other functions
+            output = _func_caller(function_name, arguments)
+
+        function_outputs.append({
+            "tool_call_id": tool_call.id,
+            "output": output
+        })
 
     run = client.beta.threads.runs.submit_tool_outputs(
                 thread_id=thread_id,

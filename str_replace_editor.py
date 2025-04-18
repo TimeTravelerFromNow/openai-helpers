@@ -2,6 +2,7 @@ import os
 import re
 import sys
 import logging
+import json
 from os.path import join, dirname, exists
 from typing import Dict, Any, List, Union, Optional, Tuple
 
@@ -9,6 +10,53 @@ from typing import Dict, Any, List, Union, Optional, Tuple
 def escape_regexp(string: str) -> str:
     """Escape special regex characters in a string."""
     return re.escape(string)
+
+def str_replace_tool(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Wrapper function that accepts OpenAI function calling format.
+
+    Args:
+        arguments: Dictionary containing the command arguments like
+                  {'command': 'view', 'path': './index.html'}
+
+    Returns:
+        Dict with the response format {"content": result, "is_error": boolean}
+    """
+    # Create a tool_call object in the format expected by str_replace_editor
+    tool_call = {
+        "name": "str_replace_editor",
+        "input": arguments
+    }
+
+    return str_replace_editor(tool_call)
+
+def handle_function_call(function_name: str, arguments: Dict[str, Any]) -> str:
+    """
+    Handle function calls in OpenAI format.
+
+    Args:
+        function_name: The name of the function to call
+        arguments: Dictionary of arguments for the function
+
+    Returns:
+        Result as a string
+    """
+    if function_name == "str_replace_tool":
+        result = str_replace_tool(arguments)
+        return json.dumps(result)
+    elif function_name == "str_replace_editor":
+        # For direct str_replace_editor calls, create the tool_call object
+        tool_call = {
+            "name": "str_replace_editor",
+            "input": arguments
+        }
+        result = str_replace_editor(tool_call)
+        return json.dumps(result)
+    else:
+        return json.dumps({
+            "content": f"Unknown function: {function_name}",
+            "is_error": True
+        })
 
 def str_replace_editor(tool_call: Dict[str, Any]) -> Dict[str, Any]:
     if not exists('./tmp/assistant-changes'):
@@ -284,3 +332,15 @@ def str_replace_editor(tool_call: Dict[str, Any]) -> Dict[str, Any]:
             "content": error_message,
             "is_error": True
         }
+
+# Add a simple main function for testing and demonstration
+if __name__ == "__main__":
+    # Example usage from command line:
+    # python str_replace_editor.py str_replace_tool '{"command": "view", "path": "./index.html"}'
+    if len(sys.argv) >= 3:
+        function_name = sys.argv[1]
+        arguments = json.loads(sys.argv[2])
+        print(handle_function_call(function_name, arguments))
+    else:
+        print("Usage: python str_replace_editor.py <function_name> '<json_arguments>'")
+        print("Example: python str_replace_editor.py str_replace_tool '{\"command\": \"view\", \"path\": \"./index.html\"}'")
