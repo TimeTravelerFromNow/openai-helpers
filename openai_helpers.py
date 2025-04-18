@@ -3,22 +3,26 @@
 # the purpose of the openai helpers is to abstract away some processing logic into helpers for the openai API
 # Things that are one liners, dont require additional handling logic, you should call regularly within your script as client.beta...
 #######
-from openai import OpenAI
-import time
-import json
-import os
-import shutil
-client = OpenAI()
-FILE_IDS = []
 
-### STR_REPLACE_EDITOR
+# Standard library imports
 import os
 import re
 import sys
-import logging
+import time
 import json
+import logging
+import shutil
 from os.path import join, dirname, exists
 from typing import Dict, Any, List, Union, Optional, Tuple
+
+# Third-party imports
+from openai import OpenAI
+
+# Initialize OpenAI client
+client = OpenAI()
+FILE_IDS = [] # keep track for deletion
+
+### STR_REPLACE_EDITOR
 
 # Helper function to escape special regex characters
 def escape_regexp(string: str) -> str:
