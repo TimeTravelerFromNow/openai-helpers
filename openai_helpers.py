@@ -60,8 +60,11 @@ def str_replace_editor(tool_call: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dict with the response format for the user
     """
-    if not exists('./tmp/assistant-changes'):
-        raise Exception('This tool is hardcoded to make changes in the ./tmp/assistant-changes directory. ensure it is created and handle by your code.')
+    # Define assistant-changes directory - the only root we should use
+    assistant_changes_dir = 'tmp/assistant-changes'
+
+    if not exists(assistant_changes_dir):
+        raise Exception(f'This tool is hardcoded to make changes in the {assistant_changes_dir} directory. ensure it is created and handle by your code.')
 
     # Validate tool call structure
     if not tool_call or not tool_call.get('name') or not tool_call.get('input'):
@@ -89,11 +92,16 @@ def str_replace_editor(tool_call: Dict[str, Any]) -> Dict[str, Any]:
         if command == 'view':
             # Handle viewing files and directories
             if file_path == '/' or file_path.endswith('/'):
-                dir_path = join(dirname(__file__), './tmp/assistant-changes', file_path)
+                # Clean path to prevent directory traversal
+                safe_path = file_path.replace('..', '')
+                dir_path = join(assistant_changes_dir, safe_path)
+                print(f"Looking for directory at: {dir_path}")
+
                 if not exists(dir_path):
                     result = f"Directory '{file_path}' does not exist. Please check the path and try again."
                     is_error = True
                 else:
+                    # Found the directory
                     items = os.listdir(dir_path)
                     contents = []
 
@@ -106,27 +114,37 @@ def str_replace_editor(tool_call: Dict[str, Any]) -> Dict[str, Any]:
 
                     result = '\n'.join(contents)
             else:
+                # Try file path
                 safe_path = file_path.replace('..', '')
-                full_path = join(dirname(__file__), './tmp/assistant-changes', safe_path)
+                full_path = join(assistant_changes_dir, safe_path)
+                print(f"Trying file path: {full_path}")
 
                 if not exists(full_path):
-                    result = "Error: File not found"
+                    result = f"Error: File not found at {file_path}"
+                    is_error = True
+                elif os.path.isdir(full_path):
+                    # Special case for trying to view a directory as a file
+                    result = f"Error: This is a directory, not a file. Use a trailing slash to view directory contents."
                     is_error = True
                 else:
-                    with open(full_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
+                    try:
+                        with open(full_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
 
-                    lines = content.split('\n')
+                        lines = content.split('\n')
 
-                    if input_params.get('view_range'):
-                        start, end = input_params['view_range']
-                        if end == -1:
-                            selected_lines = lines[start-1:]
+                        if input_params.get('view_range'):
+                            start, end = input_params['view_range']
+                            if end == -1:
+                                selected_lines = lines[start-1:]
+                            else:
+                                selected_lines = lines[start-1:end]
+                            result = '\n'.join([f"{start + i}: {line}" for i, line in enumerate(selected_lines)])
                         else:
-                            selected_lines = lines[start-1:end]
-                        result = '\n'.join([f"{start + i}: {line}" for i, line in enumerate(selected_lines)])
-                    else:
-                        result = '\n'.join([f"{index + 1}: {line}" for index, line in enumerate(lines)])
+                            result = '\n'.join([f"{index + 1}: {line}" for index, line in enumerate(lines)])
+                    except Exception as read_error:
+                        result = f"Error reading file: {str(read_error)}"
+                        is_error = True
 
         elif command == 'str_replace':
             # Handle text replacement in files
@@ -140,11 +158,13 @@ def str_replace_editor(tool_call: Dict[str, Any]) -> Dict[str, Any]:
                     result = "Error: Missing required parameters for str_replace"
                     is_error = True
                 else:
+                    # Clean path to prevent directory traversal
                     safe_path = replace_path.replace('..', '')
-                    full_path = join(dirname(__file__), './tmp/assistant-changes', safe_path)
+                    full_path = join(assistant_changes_dir, safe_path)
+                    print(f"Trying file path: {full_path}")
 
                     if not exists(full_path):
-                        result = "Error: File not found"
+                        result = f"Error: File not found at {replace_path}"
                         is_error = True
                     else:
                         with open(full_path, 'r', encoding='utf-8') as f:
@@ -205,11 +225,13 @@ def str_replace_editor(tool_call: Dict[str, Any]) -> Dict[str, Any]:
                     result = "Error: Missing required parameters for insert"
                     is_error = True
                 else:
+                    # Clean path to prevent directory traversal
                     safe_path = insert_path.replace('..', '')
-                    full_path = join(dirname(__file__), './tmp/assistant-changes', safe_path)
+                    full_path = join(assistant_changes_dir, safe_path)
+                    print(f"Trying file path: {full_path}")
 
                     if not exists(full_path):
-                        result = "Error: File not found"
+                        result = f"Error: File not found at {insert_path}"
                         is_error = True
                     else:
                         # Read the file
@@ -257,11 +279,6 @@ def str_replace_editor(tool_call: Dict[str, Any]) -> Dict[str, Any]:
                 result = error_message
                 is_error = True
 
-        elif command == 'undo_edit':
-            # Handle undoing edits
-            result = "undo_edit not yet implemented"
-            is_error = True
-
         elif command == 'delete':
             # Handle file deletion
             try:
@@ -271,8 +288,10 @@ def str_replace_editor(tool_call: Dict[str, Any]) -> Dict[str, Any]:
                     result = "Error: Missing required path parameter for delete"
                     is_error = True
                 else:
+                    # Clean path to prevent directory traversal
                     safe_path = delete_path.replace('..', '')
-                    full_path = join(dirname(__file__), './tmp/assistant-changes', safe_path)
+                    full_path = join(assistant_changes_dir, safe_path)
+                    print(f"Trying file path: {full_path}")
 
                     if not exists(full_path):
                         result = f"Error: File not found at {delete_path}"
