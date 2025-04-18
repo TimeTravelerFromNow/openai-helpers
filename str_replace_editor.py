@@ -221,6 +221,46 @@ def str_replace_editor(tool_call: Dict[str, Any]) -> Dict[str, Any]:
             result = "undo_edit not yet implemented"
             is_error = True
 
+        elif command == 'delete':
+            # Handle file deletion
+            try:
+                delete_path = input_params.get('path')
+
+                if not delete_path:
+                    result = "Error: Missing required path parameter for delete"
+                    is_error = True
+                else:
+                    safe_path = delete_path.replace('..', '')
+                    full_path = join(dirname(__file__), './tmp/assistant-changes', safe_path)
+
+                    if not exists(full_path):
+                        result = f"Error: File not found at {delete_path}"
+                        is_error = True
+                    else:
+                        try:
+                            if os.path.isdir(full_path):
+                                import shutil
+                                shutil.rmtree(full_path)
+                                result = f"Successfully deleted directory: {delete_path}"
+                            else:
+                                os.remove(full_path)
+                                result = f"Successfully deleted file: {delete_path}"
+                        except PermissionError:
+                            result = f"Error: Permission denied. Cannot delete {delete_path}"
+                            is_error = True
+                        except IsADirectoryError:
+                            result = f"Error: {delete_path} is a directory. Use delete with a directory flag."
+                            is_error = True
+                        except Exception as delete_error:
+                            result = f"Error deleting {delete_path}: {str(delete_error)}"
+                            is_error = True
+            except Exception as error:
+                error_message = f"Error performing delete operation: {str(error)}"
+                if "permission" in str(error).lower():
+                    error_message = "Error: Permission denied. Cannot delete file."
+                result = error_message
+                is_error = True
+
         else:
             result = f"Unknown command: {command}"
             is_error = True
