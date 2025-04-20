@@ -498,7 +498,7 @@ def get_processed_run(run, thread_id):
     if run.status == "expired":
         raise Exception("Assistant run expired {}".format(run))
     MAX_ITER=100 # 30 seconds max
-    SLEEP=0.3
+    SLEEP=3.3
     i = 0
     is_incomplete_status = (run.status == 'queued' or run.status == 'in_progress')
     print("polling run {} ".format(run.id),end="")
@@ -534,7 +534,14 @@ def handle_run_result(run=None,thread_id='',_func_caller=None,is_recursing=False
 
     run = get_processed_run(run, thread_id)
     usage_data = process_run_usage(run)
-    log_token_usage(usage_data)
+
+    # Add recursion info to usage data if it exists
+    if usage_data:
+        usage_data['is_recursing'] = is_recursing
+
+    log_filepath = log_token_usage(usage_data)
+    print(f"Logged usage data to {log_filepath}")
+
     if not is_recursing:
         assistant_iteration = 0 # reset the safety counter
     else:
@@ -550,7 +557,7 @@ def handle_run_result(run=None,thread_id='',_func_caller=None,is_recursing=False
             # check required action type is to submit tool outputs
             if run.required_action.type == 'submit_tool_outputs':
                 required_action = run.required_action.submit_tool_outputs
-                run =serve_tool_calls(
+                run = serve_tool_calls(
                     tool_calls=required_action.tool_calls,
                     run_id=run.id,
                     thread_id=thread_id,
@@ -568,6 +575,88 @@ def handle_run_result(run=None,thread_id='',_func_caller=None,is_recursing=False
         case _:
             raise Exception('Unknown assistant run status {}'.format(run.status))
 
+def log_token_usage(usage_data, base_dir="tmp/logs"):
+    """
+    Logs token usage data to a CSV file in thread-specific folder structure:
+    tmp/logs/{thread_id}/usage.csv
+    Creates the directories if they don't exist.
+    """
+    if not usage_data:
+        return None
+
+    import csv
+    import os
+
+    # Extract thread_id
+    thread_id = usage_data.get('thread_id', 'unknown_thread')
+
+    # Create thread-specific directory
+    thread_dir = os.path.join(base_dir, thread_id)
+    os.makedirs(thread_dir, exist_ok=True)
+
+    # Set standardized filename
+    filename = "usage.csv"
+    filepath = os.path.join(thread_dir, filename)
+
+    # Check if file exists to determine if headers are needed
+    file_exists = os.path.isfile(filepath)
+
+    # Explicitly use newline='' to ensure proper line endings on all platforms
+    with open(filepath, 'a', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=usage_data.keys())
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(usage_data)
+        f.flush()  # Ensure data is written to disk immediately
+
+    return filepath
+
+def log_tool_calls(tool_calls, run_id, thread_id, base_dir="tmp/logs"):
+    """
+    Logs tool calls and their inputs to a CSV file in thread-specific folder structure:
+    tmp/logs/thread_{thread_id}/tool_calls.csv
+    Creates the directories if they don't exist.
+    """
+    import csv
+    import os
+    from datetime import datetime
+
+    # Create thread-specific directory
+    thread_dir = os.path.join(base_dir,thread_id)
+    os.makedirs(thread_dir, exist_ok=True)
+
+    # Set standardized filename
+    filename = "tool_calls.csv"
+    filepath = os.path.join(thread_dir, filename)
+
+    # Check if file exists to determine if headers are needed
+    file_exists = os.path.isfile(filepath)
+
+    # Prepare data for each tool call
+    for tool_call in tool_calls:
+        function_name = tool_call.function.name
+        arguments = json.loads(tool_call.function.arguments)
+
+        # Create a row with basic information
+        row_data = {
+            'timestamp': datetime.now().isoformat(),
+            'run_id': run_id,
+            'thread_id': thread_id,
+            'tool_call_id': tool_call.id,
+            'function_name': function_name,
+            'arguments': json.dumps(arguments)  # Serialize arguments to JSON string
+        }
+
+        # Write to CSV
+        with open(filepath, 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=row_data.keys())
+            if not file_exists:
+                writer.writeheader()
+                file_exists = True  # Set to True so we don't write headers again for multiple tools
+            writer.writerow(row_data)
+
+    return filepath
+
 # serve_tool_calls
 # tool_calls: list of tool calls
 # _func_caller: function(function_name, arguments) # calls and returns custom code.
@@ -575,6 +664,10 @@ def handle_run_result(run=None,thread_id='',_func_caller=None,is_recursing=False
 # Returns run object after submitting tool outputs.
 def serve_tool_calls(tool_calls=None, run_id="", thread_id="", _func_caller=None):
     function_outputs = []
+
+    # Log the tool calls
+    log_filepath = log_tool_calls(tool_calls, run_id, thread_id)
+    print(f"Logged tool calls to {log_filepath}")
 
     for tool_call in tool_calls:
         function_name = tool_call.function.name
@@ -600,6 +693,9 @@ def serve_tool_calls(tool_calls=None, run_id="", thread_id="", _func_caller=None
                 run_id=run_id,
                 tool_outputs=function_outputs
             )
+
+    # The run returned here will be in 'queued' or 'in_progress' state
+    # We'll need to wait for it to complete and then log its usage
     return run
 
 ### Destructors
@@ -680,51 +776,26 @@ def clear_assistant_tmp():
 
 def process_run_usage(run):
     """
-    Extracts and processes token usage data from a completed run.
-    Returns a dictionary with usage metrics.
+    Extracts and processes token usage data from a run.
+    Returns a dictionary with usage metrics if available,
+    or basic run data if usage metrics aren't available.
     """
-    if not hasattr(run, 'usage') or run.usage is None:
-        return None
-
+    # Create base data
     usage_data = {
         'run_id': run.id,
-        'thread_id': run.thread_id,
-        'assistant_id': run.assistant_id,
         'model': run.model,
-        'timestamp': run.completed_at,
-        'prompt_tokens': run.usage.prompt_tokens,
-        'completion_tokens': run.usage.completion_tokens,
-        'total_tokens': run.usage.total_tokens
+        'timestamp': run.completed_at or run.created_at,
     }
 
+    # Add usage metrics if available
+    if hasattr(run, 'usage') and run.usage is not None:
+        usage_data['prompt_tokens'] = run.usage.prompt_tokens
+        usage_data['completion_tokens'] = run.usage.completion_tokens
+        usage_data['total_tokens'] = run.usage.total_tokens
+    else:
+        # Add placeholder values when usage isn't available
+        usage_data['prompt_tokens'] = "N/A"
+        usage_data['completion_tokens'] = "N/A"
+        usage_data['total_tokens'] = "N/A"
+
     return usage_data
-
-def log_token_usage(usage_data, base_dir="tmp/logs"):
-    """
-    Logs token usage data to a CSV file with format usage_{thread_id}.csv
-    Creates the directory if it doesn't exist.
-    """
-    if not usage_data:
-        return None
-
-    import csv
-    import os
-
-    # Create logs directory if it doesn't exist
-    os.makedirs(base_dir, exist_ok=True)
-
-    # Generate filename based only on thread_id
-    thread_id = usage_data.get('thread_id', 'unknown_thread')
-    filename = f"usage_{thread_id}.csv"
-    filepath = os.path.join(base_dir, filename)
-
-    # Check if file exists to determine if headers are needed
-    file_exists = os.path.isfile(filepath)
-
-    with open(filepath, 'a', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=usage_data.keys())
-        if not file_exists:
-            writer.writeheader()
-        writer.writerow(usage_data)
-
-    return filepath
