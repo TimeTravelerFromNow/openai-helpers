@@ -7,13 +7,13 @@
 # Standard library imports
 import os
 import re
-import sys
 import time
 import json
 import logging
 import shutil
 from os.path import join, dirname, exists
 from typing import Dict, Any, List, Union, Optional, Tuple
+from pathlib import Path
 
 # Third-party imports
 from openai import OpenAI
@@ -667,3 +667,11 @@ def clear_openai_storage(vector_store_id=None):
         print("deleting the vector store too")
         result = client.vector_stores.delete(vector_store_id)
         print(f"Done deleting, vector store should be gone\n{result}")
+
+def clear_assistant_tmp():
+    tmp_dir = Path("tmp/assistant-changes")
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir)
+        print("Temporary directory 'tmp/assistant-changes' has been cleared.")
+    else:
+        print("Temporary directory 'tmp/assistant-changes' does not exist.")
