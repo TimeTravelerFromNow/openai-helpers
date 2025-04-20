@@ -533,6 +533,8 @@ def handle_run_result(run=None,thread_id='',_func_caller=None,is_recursing=False
     global assistant_iteration
 
     run = get_processed_run(run, thread_id)
+    usage_data = process_run_usage(run)
+    log_token_usage(usage_data)
     if not is_recursing:
         assistant_iteration = 0 # reset the safety counter
     else:
@@ -675,3 +677,54 @@ def clear_assistant_tmp():
         print("Temporary directory 'tmp/assistant-changes' has been cleared.")
     else:
         print("Temporary directory 'tmp/assistant-changes' does not exist.")
+
+def process_run_usage(run):
+    """
+    Extracts and processes token usage data from a completed run.
+    Returns a dictionary with usage metrics.
+    """
+    if not hasattr(run, 'usage') or run.usage is None:
+        return None
+
+    usage_data = {
+        'run_id': run.id,
+        'thread_id': run.thread_id,
+        'assistant_id': run.assistant_id,
+        'model': run.model,
+        'timestamp': run.completed_at,
+        'prompt_tokens': run.usage.prompt_tokens,
+        'completion_tokens': run.usage.completion_tokens,
+        'total_tokens': run.usage.total_tokens
+    }
+
+    return usage_data
+
+def log_token_usage(usage_data, base_dir="tmp/logs"):
+    """
+    Logs token usage data to a CSV file with format usage_{thread_id}.csv
+    Creates the directory if it doesn't exist.
+    """
+    if not usage_data:
+        return None
+
+    import csv
+    import os
+
+    # Create logs directory if it doesn't exist
+    os.makedirs(base_dir, exist_ok=True)
+
+    # Generate filename based only on thread_id
+    thread_id = usage_data.get('thread_id', 'unknown_thread')
+    filename = f"usage_{thread_id}.csv"
+    filepath = os.path.join(base_dir, filename)
+
+    # Check if file exists to determine if headers are needed
+    file_exists = os.path.isfile(filepath)
+
+    with open(filepath, 'a', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=usage_data.keys())
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(usage_data)
+
+    return filepath
